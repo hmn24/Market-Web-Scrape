@@ -32,9 +32,15 @@ def tryExcept(f):
 def getDate(inter=0):
     return date.today() - timedelta(days=1+inter)
 
-def getNASDAQTickers():
+def getFilteredNASDAQTickers():
+    
     data = pdr.nasdaq_trader.get_nasdaq_symbols()
-    return data[data['Nasdaq Traded']].index.values
+
+    ticks = set(data[data['Nasdaq Traded']].index.values)   
+    errorTicks = set(getErrorTicks()['ErrorTicks'])
+    ticks -= errorTicks    
+    
+    return list(ticks)
 
 def writeToDB(data, file, resetIndex=True):
     if not os.path.exists("db"):
@@ -101,39 +107,43 @@ def extractYahooData(tick, startDate, endDate):
 
 def getErrorTicks():
     file = 'db/error.file'
-    return pd.read_feather(file) if os.path.exists(file) else pd.DataFrame({'ErrorTicks': []})
+    return pd.read_feather(file) if os.path.exists(file) else pd.DataFrame(columns=['ErrorTicks'])
+
+## Multiprocessing mechanism
+def multiproc(iterList, errorList, f, args, procs=8, storeRes=False):
+    
+    pool = ThreadPool(processes=procs)
+
+    async_result, result = [], []
+
+    for i in iterList:
+        async_result.append(pool.apply_async(f, [i] + args))
+
+    for k,v in enumerate(async_result):
+        v.wait()
+        res = v.get()
+        if res is None:
+            errorList.append(iterList[k])
+        elif storeRes: 
+            result.append(res)
+
+    return result, errorList
 
 ## Parallel download of ticker symbols - Default 8 processes
 def populateDB(procs=8):
     
     print("Initiating population of DB for last 250 days")
     
-    ticks = getNASDAQTickers()
+    ticks = getFilteredNASDAQTickers()  
+    errList = list(getErrorTicks()['ErrorTicks'])
+    origLen = len(errList)
     
-    errorTicks = set(getErrorTicks()['ErrorTicks'])
-    
-    origLen = len(errorTicks)
+    dtRange = [getDate(250), getDate()]
+    res, errList = multiproc(ticks, errList, extractYahooData, dtRange, procs)  
 
-    pool = ThreadPool(processes=procs)
-
-    async_result = []
-    tickProcs = []
-
-    startDate, endDate = getDate(250), getDate()
-    for i in ticks:
-        if i not in errorTicks:
-            async_result.append(pool.apply_async(extractYahooData, (i,startDate,endDate)))
-            tickProcs.append(i)
-
-    for k,v in enumerate(async_result):
-        v.wait()
-        if v.get() is None:
-            errorTicks.add(tickProcs[k])
-
-    ## Updating error.file
-    if origLen != len(errorTicks):
-        df = pd.DataFrame({'ErrorTicks': list(errorTicks)})
-        writeToDB(df, 'error', False)
+    ## Update error.file
+    if origLen != len(errList):
+        writeToDB(pd.DataFrame({'ErrorTicks': errList}), 'error', False)
 
     print("Completion of population of DB")
 
@@ -169,31 +179,21 @@ def getFilteredTicks(procs=8):
     
     print("Identifying Overbought/Oversold Tick Symbols")
 
-    ticks = set(getNASDAQTickers())
-    errorTicks = set(getErrorTicks()['ErrorTicks'])
-    ticks -= errorTicks
+    ticks = getFilteredNASDAQTickers()  
+    errList = list(getErrorTicks()['ErrorTicks'])
+    origLen = len(errList)  
+    
+    dtRange = [getDate(250), getDate()]
+    filteredTicks, errList = multiproc(ticks, errList, checkTAFilter, dtRange, procs, True)  
 
-    pool = ThreadPool(processes=procs)
+    ## Update error.file
+    if origLen != len(errList):
+        writeToDB(pd.DataFrame({'ErrorTicks': errList}), 'error', False)
 
-    ## Storage of results/tickSymbols
-    async_result = []
-    filteredTicks = []
-
-    startDate, endDate = getDate(250), getDate()
-    for i in ticks:
-        async_result.append(pool.apply_async(checkTAFilter, (i,startDate,endDate)))
-
-    for v in async_result:
-        v.wait()
-        res = v.get()
-        if res is not None:
-            filteredTicks.append(res)
-
-    print("Completion of Identification")
-
-    ## Format into dataframe
     df = pd.DataFrame(filteredTicks, columns=['Symbol','Type'])
     df['Type'] = df['Type'].map({True:'Overbought', False:'Oversold'})
+
+    print("Completion of Identification")
 
     return df
 
