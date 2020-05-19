@@ -1,5 +1,6 @@
-# NASDAQ_Scrape
-To scrape NASDAQ
+# Market Web Scrape
+
+To scrape NASDAQ/IG
 
 ### Sample Output
 ```
