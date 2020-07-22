@@ -69,6 +69,12 @@ def genPairList(driver):
 
     pairList = []
 
+    name, percent, direction = (
+        "//h1[@class='ma__title']",
+        "//span[@class='price-ticket__percent']",
+        "//div[@class='information-popup']//strong",
+    )
+
     for i in indexMarkets:
         temp = []
         try:
@@ -76,23 +82,18 @@ def genPairList(driver):
             driver.get(IGprefix + i)
 
             ## Scrape required info
-            name, percent, direction = (
-                "//h1[@class='ma__title']",
-                "//span[@class='price-ticket__percent']",
-                "//div[@class='information-popup']//strong",
-            )
             for j in (name, percent, direction):
                 res = findXPath(driver, j)
                 if res:
                     temp.append(res)
                 else:
                     break
-            else:  # nobreak
+            else:  ## nobreak -- Only append if (name,percent,direction) are all found
                 pairList.append(temp)
 
         except Exception as e:
             print(f"Exception raised: {e}")
-
+    
     return pd.DataFrame(pairList, columns=["Index", "Percent", "Direction"])
 
 def genBarChart():
@@ -133,6 +134,8 @@ def scrapeAndPlot():
     wBrowser.quit()
 
     ## Ctrl + C to exit plots once done
-    genBarChart()
+    ## Only plot if df is non-empty
+    if len(df):
+        genBarChart()
 
     print("Scraped and plotted successfully")
