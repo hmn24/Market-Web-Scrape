@@ -1,9 +1,9 @@
-
 # pylint: disable=invalid-name
 # pylint: disable=missing-docstring
 
 import operator
 import os
+import configparser
 
 from multiprocessing.pool import ThreadPool
 from datetime import date, timedelta
@@ -14,14 +14,22 @@ import ta
 import pandas_datareader as pdr
 import pandas as pd
 
-## TA Filter Conditions
-BBandsPeriod = 20
-BBandsStdDev = 2
+## Get path of location
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-RSIUpper = 75
-RSILower = 25
+## Read configs
+config = configparser.ConfigParser()
+config.read(os.path.join(__location__, "config.ini"))
 
-RSIPeriod = 14
+## TA Filter Conditions, default values RHS
+BBandsCfg = config["BBands"]
+BBandsPeriod = int(BBandsCfg.get("Period", 20))
+BBandsStdDev = float(BBandsCfg.get("StdDev", 2))
+
+RSICfg = config["RSI"]
+RSIUpper = float(BBandsCfg.get("UpperLimit", 75))
+RSILower = float(BBandsCfg.get("LowerLimit", 25))
+RSIPeriod = float(BBandsCfg.get("Period", 14))
 
 ## Assume args[0] always refer to ticker
 def tryExcept(f):
@@ -129,7 +137,7 @@ def getErrorTicks():
     )
 
 
-## Multiprocessing mechanism
+## Multiprocessing (ThreadPool) mechanism
 def multiproc(iterList, errorList, f, args, procs=8, storeRes=False):
 
     pool = ThreadPool(processes=procs)
@@ -150,7 +158,7 @@ def multiproc(iterList, errorList, f, args, procs=8, storeRes=False):
     return result, errorList
 
 
-## Parallel download of ticker symbols - Default 8 processes
+## Parallel download of ticker symbols - Default 8 threads to avoid interpreter spawn overheads
 def populateDB(procs=8):
 
     print("Initiating population of DB for last 250 days")
@@ -201,7 +209,7 @@ def checkTAFilter(tick, startDate, endDate):
     return None
 
 
-## Multi-processing wrapper for checkTAFilter
+## Multiprocessing (ThreadPool) wrapper for checkTAFilter
 def getFilteredTicks(procs=8):
 
     print("Identifying Overbought/Oversold Tick Symbols")
